@@ -180,7 +180,7 @@ impl<'a> ClangCl<'a> {
 
                 // CMake support
                 let cmake_toolchain = self
-                    .setup_cmake_toolchain(target, &xwin_cache_dir)
+                    .setup_cmake_toolchain(target, &xwin_cache_dir, is_static_crt)
                     .with_context(|| format!("Failed to setup CMake toolchain for {}", target))?;
                 setup_cmake_env(cmd, target, cmake_toolchain);
             }
@@ -380,7 +380,12 @@ impl<'a> ClangCl<'a> {
         Ok(pkg_manifest)
     }
 
-    fn setup_cmake_toolchain(&self, target: &str, xwin_cache_dir: &Path) -> Result<PathBuf> {
+    fn setup_cmake_toolchain(
+        &self,
+        target: &str,
+        xwin_cache_dir: &Path,
+        is_static_crt: bool,
+    ) -> Result<PathBuf> {
         let cmake_cache_dir = xwin_cache_dir
             .parent()
             .unwrap()
@@ -408,6 +413,12 @@ impl<'a> ClangCl<'a> {
             _ => target_arch,
         };
 
+        let runtime_library = if is_static_crt {
+            "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        } else {
+            "MultiThreadedDLL$<$<CONFIG:Debug>:Debug>"
+        };
+
         let content = format!(
             r#"
 set(CMAKE_SYSTEM_NAME Windows)
@@ -417,6 +428,7 @@ set(CMAKE_C_COMPILER clang-cl CACHE FILEPATH "")
 set(CMAKE_CXX_COMPILER clang-cl CACHE FILEPATH "")
 set(CMAKE_AR llvm-lib)
 set(CMAKE_LINKER lld-link CACHE FILEPATH "")
+set(CMAKE_MSVC_RUNTIME_LIBRARY CACHE STRING "{runtime_library}")
 
 set(COMPILE_FLAGS
     --target={target}
@@ -465,10 +477,7 @@ set(CMAKE_TRY_COMPILE_CONFIGURATION Release)
 # Allow clang-cl to work with macOS paths.
 set(CMAKE_USER_MAKE_RULES_OVERRIDE "${{CMAKE_CURRENT_LIST_DIR}}/override.cmake")
         "#,
-            target = target,
-            processor = processor,
             xwin_dir = adjust_canonicalization(xwin_cache_dir.to_slash_lossy().to_string()),
-            xwin_arch = xwin_arch,
         );
         fs::write(&toolchain_file, content)?;
         Ok(toolchain_file)
